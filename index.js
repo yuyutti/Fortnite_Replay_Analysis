@@ -156,6 +156,7 @@ async function calculateScore({ matchData, points, killCountUpperLimit = null, k
                 partyAliveTimeList: [],
                 partyMemberList: [],
                 partyMemberIdList: [],
+                partyDiscordInfo: null
             };
         }
     
@@ -189,7 +190,7 @@ function mergeScores(scoreArrays) { // 複数マッチの結果をマージし�
                     partyVictoryRoyaleCount: p.partyVictoryRoyale ? 1 : 0,
                     matchList: [p.matchName],
                     partyMemberList: [...p.partyMemberList],
-                    partyDiscordInfo: p.partyDiscordInfo ? { ...p.partyDiscordInfo } : undefined,
+                    partyDiscordInfo: p.partyDiscordInfo ? [ ...p.partyDiscordInfo ] : undefined,
                     partyAliveTimeByMatch: [
                         { match: p.matchName, times: [...(p.partyAliveTimeList || [])] }
                     ],
