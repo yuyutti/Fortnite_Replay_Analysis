@@ -5,7 +5,9 @@ const Decimal = require('decimal.js');
 const { execFile } = require('child_process');
 
 function getBinaryPath() { // OS判定して自己完結バイナリの実行ファイルパスを返す
-    const baseDir = path.resolve(__dirname, 'CSproj', 'bin', 'Release', 'net8.0');
+    const projectRoot =
+        process.env.INIT_CWD || process.cwd();
+    const baseDir = path.resolve(projectRoot, 'node_modules', 'fortnite-replay-analysis', 'CSproj', 'bin', 'Release', 'net8.0');
 
     switch (os.platform()) {
         case 'win32':
