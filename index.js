@@ -4,9 +4,23 @@ const path = require('path');
 const Decimal = require('decimal.js');
 const { execFile } = require('child_process');
 
+function normalizeProjectRoot(root) {
+    const marker = path.join('node_modules', 'fortnite-replay-analysis');
+    const idx = root.lastIndexOf(marker);
+
+    if (idx !== -1) {
+        return root.slice(0, idx);
+    }
+
+    return root;
+}
+
 function getBinaryPath() { // OS判定して自己完結バイナリの実行ファイルパスを返す
-    const projectRoot =
+    let projectRoot =
         process.env.INIT_CWD || process.cwd();
+
+    projectRoot = normalizeProjectRoot(projectRoot);
+
     const baseDir = path.resolve(projectRoot, 'node_modules', 'fortnite-replay-analysis', 'CSproj', 'bin', 'Release', 'net8.0');
 
     switch (os.platform()) {
