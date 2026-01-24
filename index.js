@@ -33,7 +33,7 @@ function getBinaryPath() { // OS判定して自己完結バイナリの実行フ
     }
 }
 
-function ReplayAnalysis(inputPath, { bot = false, sort = true } = {}) { // Fortniteのリプレイファイルを解析してプレイヤーデータを返す
+function ReplayAnalysis(inputPath, { bot = false, sort = true } = {}) {
     return new Promise((resolve, reject) => {
 
         let replayFilePath;
@@ -44,7 +44,7 @@ function ReplayAnalysis(inputPath, { bot = false, sort = true } = {}) { // Fortn
                 const files = fs.readdirSync(inputPath)
                     .filter(f => f.endsWith('.replay'))
                     .map(f => ({ f, t: fs.statSync(path.join(inputPath, f)).mtimeMs }))
-                    .sort((a, b) => b.t - a.t); // 新しい順
+                    .sort((a, b) => b.t - a.t);
                 if (files.length === 0) {
                     return reject(new Error(`No .replay files found in directory: ${inputPath}`));
                 }
@@ -57,6 +57,7 @@ function ReplayAnalysis(inputPath, { bot = false, sort = true } = {}) { // Fortn
         } catch (e) {
             return reject(new Error(`Failed to access path: ${e.message}`));
         }
+
         const binPath = getBinaryPath();
 
         execFile(binPath, [replayFilePath], { maxBuffer: 1024 * 1024 * 20 }, (error, stdout, stderr) => {
@@ -79,33 +80,57 @@ function ReplayAnalysis(inputPath, { bot = false, sort = true } = {}) { // Fortn
             const playerData = parsed.PlayerData;
 
             try {
-
                 if (!Array.isArray(playerData)) {
                     reject(new Error(`Unexpected JSON format: playerData is not an array.`));
                     return;
                 }
 
-                // 2位以下のDeathTimeDoubleを取得
+                /* =========================
+                   KillFeed Placement
+                ========================= */
+
+                const teamsFromKillFeed = calculateTeamPlacementFromKillFeed(
+                    playerData,
+                    parsed.KillFeed,
+                    parsed.GameData
+                );
+
+                const placementMap = new Map(); // teamIndex -> placement
+                for (const t of teamsFromKillFeed) {
+                    placementMap.set(t.teamIndex, t.placement);
+                }
+
+                const PlacementInfo = buildSimplePlacement(teamsFromKillFeed);
+
+                /* =========================
+                   Alive Time 計算
+                ========================= */
+
                 const secondPlaceAliveTimes = playerData
                     .filter(p => p.Placement !== 1)
                     .map(p => p.DeathTimeDouble)
                     .filter(t => t !== null && t !== undefined);
 
-                // 2位がいなかったら0秒にする（または適宜）
                 const maxSecondPlaceAliveTime = secondPlaceAliveTimes.length > 0
                     ? secondPlaceAliveTimes
                         .map(t => new Decimal(t))
                         .reduce((a, b) => Decimal.max(a, b))
                     : new Decimal(0);
 
+                /* =========================
+                   PlayerInfo 生成（ここで Placement 上書き）
+                ========================= */
+
                 const playerInfo = playerData.map(player => {
                     const aliveTimeDecimal = player.DeathTimeDouble === null
                         ? maxSecondPlaceAliveTime.plus(new Decimal('1e-9'))
                         : new Decimal(player.DeathTimeDouble);
 
+                    const fallbackPlacement = placementMap.get(player.TeamIndex);
+
                     return {
                         partyNumber: player.TeamIndex,
-                        Placement: player.Placement,
+                        Placement: fallbackPlacement ?? player.Placement,
                         Kills: player.Kills,
                         TeamKills: player.TeamKills,
                         aliveTime: aliveTimeDecimal,
@@ -121,16 +146,23 @@ function ReplayAnalysis(inputPath, { bot = false, sort = true } = {}) { // Fortn
                     filteredAndSortedPlayerInfo = filteredAndSortedPlayerInfo.filter(p => p.IsBot === false);
                 }
                 if (sort) {
-                    filteredAndSortedPlayerInfo = filteredAndSortedPlayerInfo.sort((a, b) => a.Placement - b.Placement);
+                    filteredAndSortedPlayerInfo =
+                        filteredAndSortedPlayerInfo.sort((a, b) => a.Placement - b.Placement);
                 }
+
+                /* =========================
+                   Resolve
+                ========================= */
 
                 resolve({
                     rawReplayData: parsed,
                     rawPlayerData: playerData,
-                    processedPlayerInfo: filteredAndSortedPlayerInfo
+                    processedPlayerInfo: filteredAndSortedPlayerInfo,
+                    processedPlacementInfo: { teams: teamsFromKillFeed, placement: PlacementInfo }
                 });
-            } catch (jsonErr) {
-                reject(new Error(`JSON parse error: ${jsonErr.message}`));
+
+            } catch (err) {
+                reject(new Error(`ReplayAnalysis error: ${err.message}`));
             }
         });
     });
@@ -329,6 +361,96 @@ function sumMaxAliveTime(partyAliveTimeList, partyAliveTimeByMatch) {
     }
 
     return new Decimal(0);
+}
+
+// 順位生成 //
+
+function calculateTeamPlacementFromKillFeed( // KillFeedの情報からチーム順位を計算
+    rawPlayerData,
+    killFeed,
+    gameData
+) {
+    const players = new Map();        // playerId -> { teamIndex, name }
+    const teams = new Map();          // teamIndex -> team info
+    const lastDeathIndex = new Map(); // playerId -> killFeed index
+
+    // ① プレイヤー・チーム初期化
+    for (const p of rawPlayerData) {
+        if (p.IsBot) continue;
+
+        const playerId = Number(p.Id ?? p.PlayerId);
+        const teamIndex = p.TeamIndex;
+
+        players.set(playerId, {
+            playerId,
+            epicId: p.EpicId,
+            epicName: p.PlayerName,
+            teamIndex
+        });
+
+        if (!teams.has(teamIndex)) {
+            teams.set(teamIndex, {
+                teamIndex,
+                isWinner: teamIndex === gameData.WinningTeam,
+                lastDeathOrder: null,
+                players: {}
+            });
+        }
+
+        teams.get(teamIndex).players[playerId] = {
+            epicId: p.EpicId,
+            epicName: p.PlayerName
+        };
+    }
+
+    // ② KillFeed 解析（最後に死んだタイミングを記録）
+    killFeed.forEach((e, index) => {
+        if (e.PlayerIsBot || e.IsDowned || e.IsRevived) return;
+
+        const playerId = Number(e.PlayerId);
+        if (!players.has(playerId)) return;
+
+        lastDeathIndex.set(playerId, index);
+    });
+
+    // ③ チーム単位に反映
+    for (const [playerId, deathIndex] of lastDeathIndex.entries()) {
+        const { teamIndex } = players.get(playerId);
+        const team = teams.get(teamIndex);
+
+        if (
+            team.lastDeathOrder === null ||
+            deathIndex > team.lastDeathOrder
+        ) {
+            team.lastDeathOrder = deathIndex;
+        }
+    }
+
+    // ④ ソート（勝者 → 生存 → 死亡順）
+    const sortedTeams = Array.from(teams.values()).sort((a, b) => {
+        if (a.isWinner !== b.isWinner) return a.isWinner ? -1 : 1;
+
+        if (a.lastDeathOrder === null && b.lastDeathOrder === null) return 0;
+        if (a.lastDeathOrder === null) return -1;
+        if (b.lastDeathOrder === null) return 1;
+
+        return b.lastDeathOrder - a.lastDeathOrder;
+    });
+
+    // ⑤ 順位付与
+    sortedTeams.forEach((team, idx) => {
+        team.placement = idx + 1;
+    });
+
+    return sortedTeams;
+}
+
+function buildSimplePlacement(teams) { // チーム順位からシンプルな配置オブジェクトを生成
+    return teams.reduce((acc, team) => {
+        acc[team.placement] = Object.values(team.players)
+            .map(p => p.epicName);
+        return acc;
+    }, {});
 }
 
 module.exports = {
