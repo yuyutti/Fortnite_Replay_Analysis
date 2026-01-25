@@ -121,6 +121,11 @@ function ReplayAnalysis(inputPath, { bot = false, sort = true } = {}) {
                    PlayerInfo 生成（ここで Placement 上書き）
                 ========================= */
 
+                const matchName =
+                    parsed?.GameData?.GameSessionId
+                        ? String(parsed.GameData.GameSessionId)
+                        : `match_${Date.now()}`;
+
                 const playerInfo = playerData.map(player => {
                     const aliveTimeDecimal = player.DeathTimeDouble === null
                         ? maxSecondPlaceAliveTime.plus(new Decimal('1e-9'))
@@ -129,6 +134,7 @@ function ReplayAnalysis(inputPath, { bot = false, sort = true } = {}) {
                     const fallbackPlacement = placementMap.get(player.TeamIndex);
 
                     return {
+                        playerId: player.Id,
                         partyNumber: player.TeamIndex,
                         Placement: fallbackPlacement ?? player.Placement,
                         Kills: player.Kills,
@@ -137,7 +143,8 @@ function ReplayAnalysis(inputPath, { bot = false, sort = true } = {}) {
                         EpicId: player.EpicId,
                         PlayerName: player.PlayerName,
                         Platform: player.Platform,
-                        IsBot: player.IsBot
+                        IsBot: player.IsBot,
+                        matchName
                     };
                 });
 
@@ -168,7 +175,7 @@ function ReplayAnalysis(inputPath, { bot = false, sort = true } = {}) {
     });
 }
 
-async function calculateScore({ matchData, points, killCountUpperLimit = null, killPointMultiplier = 1 } = {}) {
+async function calculateScore({ matchData, points, killMode = "team", killCountUpperLimit = null, killPointMultiplier = 1 } = {}) {
     if (!matchData) throw new Error('matchData is required');
 
     let playerInfo;
@@ -187,17 +194,20 @@ async function calculateScore({ matchData, points, killCountUpperLimit = null, k
     }
 
     const partyScore = playerInfo.reduce((acc, player) => {
-        if (!acc[player.partyNumber]) {
-            const limitedKills = killCountUpperLimit == null
-                ? (player.TeamKills || 0)
-                : Math.min(player.TeamKills || 0, killCountUpperLimit);
-            acc[player.partyNumber] = {
-                partyPlacement: player.Placement,
+        const key =
+            killMode === "team"
+                ? player.partyNumber
+                : player.playerId;
+
+        if (!acc[key]) {
+            acc[key] = {
+                playerId: killMode === "team" ? null : player.playerId,
                 partyNumber: player.partyNumber,
-                partyKills: limitedKills,
-                partyKillsNoLimit: player.TeamKills || 0,
-                partyKillPoints: (limitedKills) * killPointMultiplier,
-                partyScore: (points[player.Placement] ?? 0) + ((limitedKills) * killPointMultiplier),
+                partyPlacement: player.Placement,
+                partyKills: 0,
+                partyKillsNoLimit: 0,
+                partyKillPoints: 0,
+                partyScore: points[player.Placement] ?? 0,
                 partyPoint: points[player.Placement] ?? 0,
                 partyVictoryRoyale: player.Placement === 1,
                 partyKillsList: [],
@@ -205,20 +215,57 @@ async function calculateScore({ matchData, points, killCountUpperLimit = null, k
                 partyMemberList: [],
                 partyMemberIdList: [],
                 partyDiscordIdList: null,
-                partyDiscordInfo: null
+                partyDiscordInfo: null,
+                matchName: player.matchName || null
             };
         }
-    
-        // キル数の加算
-        acc[player.partyNumber].partyKillsList.push(player.Kills || 0);
-        acc[player.partyNumber].partyAliveTimeList.push(player.aliveTime || 0);
-        acc[player.partyNumber].partyMemberList.push(player.PlayerName);
-        acc[player.partyNumber].partyMemberIdList.push(player.EpicId);
-    
+
+        // 共通で集める情報
+        acc[key].partyKillsList.push(player.Kills || 0);
+        acc[key].partyAliveTimeList.push(player.aliveTime || 0);
+        acc[key].partyMemberList.push(player.PlayerName);
+        acc[key].partyMemberIdList.push(player.EpicId);
+
+        // individual のときだけ、ここでキルを加算
+        if (killMode === "individual") {
+            acc[key].partyKillsNoLimit += player.Kills || 0;
+        }
+
         return acc;
     }, {});
     
     let result = Object.values(partyScore);
+
+    if (killMode === "team") {
+        // チームキル：メンバー全員の Kills 合計
+        result.forEach(p => {
+            const teamKills = p.partyKillsList.reduce((a, b) => a + b, 0);
+
+            const limitedKills = killCountUpperLimit == null
+                ? teamKills
+                : Math.min(teamKills, killCountUpperLimit);
+
+            p.partyKills = limitedKills;
+            p.partyKillsNoLimit = teamKills;
+
+            p.partyKillPoints = limitedKills * killPointMultiplier;
+            p.partyScore = (p.partyPoint || 0) + p.partyKillPoints;
+        });
+    } else {
+        // individual
+        result.forEach(p => {
+            const rawKills = p.partyKillsNoLimit;
+
+            const limitedKills = killCountUpperLimit == null
+                ? rawKills
+                : Math.min(rawKills, killCountUpperLimit);
+
+            p.partyKills = limitedKills;
+            p.partyKillPoints = limitedKills * killPointMultiplier;
+            p.partyScore = (p.partyPoint || 0) + p.partyKillPoints;
+        });
+    }
+
     result = sortScores(result);
 
     return result;
@@ -270,7 +317,43 @@ function mergeScores(scoreArrays) { // 複数マッチの結果をマージし�
         })
     );
     
-    return Array.from(map.values());
+    const result = Array.from(map.values()).map(p => {
+        return {
+            ...p,
+            overallSummary: buildOverallSummary(p)
+        };
+    });
+
+    return result;
+}
+
+function buildOverallSummary(p) { // マージ後のパーティ全体のサマリーを生成
+    const matchCount = (p.matchList || []).length || 1;
+
+    const totalKills = p.partyKillsNoLimit ?? 0;
+
+    const totalPlacement = Array.isArray(p.partyPlacementList)
+        ? p.partyPlacementList.reduce((a, b) => a + b, 0)
+        : p.partyPlacement ?? 0;
+
+    return {
+        totalPoint: p.partyScore ?? 0,
+        victoryCount: p.partyVictoryRoyaleCount ?? 0,
+        matchCount,
+
+        avgKills: matchCount > 0
+            ? new Decimal(totalKills).dividedBy(matchCount)
+            : new Decimal(0),
+
+        avgPlacement: matchCount > 0
+            ? new Decimal(totalPlacement).dividedBy(matchCount)
+            : new Decimal(0),
+
+        totalAliveTime: sumMaxAliveTime(
+            p.partyAliveTimeList,
+            p.partyAliveTimeByMatch
+        )
+    };
 }
 
 function sortScores(arr) { // 公式準拠のスコアソート関数

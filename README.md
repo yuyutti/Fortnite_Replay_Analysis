@@ -5,14 +5,34 @@
 
 # Fortnite Replay Analysis
 
-Fortnite Replay Analysis is a Node.js module for reading Fortnite replay files, extracting player data, and ranking results.
+A Node.js library that parses Fortnite .replay files  
+and provides player information, team placements, survival time,  
+and score calculation in a single workflow.
+
+---
 
 ## Features
 
-* Detects the operating system and invokes a prebuilt, self-contained binary for fast parsing.
-* Supports excluding bot players and optional placement sorting.
-* Merges scores across multiple matches by party.
-* Sorts scores following the official Fortnite scoring rules.
+✅ Directly parses Fortnite .replay files  
+✅ Windows / Linux support (self-contained binary)  
+✅ Accurately reconstructs team placements from KillFeed  
+✅ Bot exclusion and placement sorting  
+✅ Supports both team-based and individual kill scoring  
+✅ Automatically merges scores across multiple matches  
+✅ Calculates average kills, average placement, and total survival time  
+✅ High-precision calculations using Decimal.js  
+
+---
+
+## Requirements
+
+- Node.js 18 or later (recommended)  
+- Windows x64 / Linux x64  
+
+※ Tested with Node.js v22.22.0  
+※ macOS is currently not supported
+
+---
 
 ## Installation
 
@@ -20,118 +40,290 @@ Fortnite Replay Analysis is a Node.js module for reading Fortnite replay files, 
 npm install fortnite-replay-analysis@latest
 ```
 
+---
+
 ## Usage
 
+#### Replay Analysis (automatically selects the latest .replay file)
+
 ```js
+const { ReplayAnalysis } = require("fortnite-replay-analysis");
+
+(async () => {
     const {
-        ReplayAnalysis,
-        calculateScore,
-        sortScores,
-        mergeScores
-    } = require('fortnite-replay-analysis');
+        rawReplayData,
+        rawPlayerData,
+        processedPlayerInfo,
+        processedPlacementInfo
+    } = await ReplayAnalysis("./replay", {
+        bot: false,
+        sort: true
+    });
 
-    (async () => {
-        // Parse a single match (directory: first .replay file; file: specific .replay)
-        const {
-            rawReplayData,
-            rawPlayerData,
-            processedPlayerInfo
-        } = await ReplayAnalysis(
-            './path/to/replayDirOrFile',
-            { bot: false, sort: true }
-        );
-
-        console.log('Raw Data:', rawPlayerData);
-        console.log('Processed Player Info:', processedPlayerInfo);
-
-        // Sort by official rules
-        const sortedScores = sortScores(processedPlayerInfo);
-
-        // Calculate points & kills
-        const score = await calculateScore({
-            matchData: processedPlayerInfo,
-            points: { 1: 11, 2: 6, 3: 5, 4: 4, 5: 3, 6: 2 },
-            killCountUpperLimit: 10,      // optional, default null (no limit)
-            killPointMultiplier: 1        // points per kill multiplier, optional, default 1
-        });
-
-        console.log('Score:', score);
-
-        // Merge and re-sort multiple matches
-        const merged = mergeScores([sortedScores, sortedScores2]);
-        const finalSorted = sortScores(merged);
-
-        console.log('Merged & Sorted:', finalSorted);
-    })();
+    console.log(processedPlayerInfo);
+})();
 ```
+
+##### Specify a single replay file
+
+```js
+await ReplayAnalysis("./replay/match1.replay");
+```
+
+---
+
+### Score Calculation (single match)
+
+Uses the result of ReplayAnalysis directly  
+to calculate placement points and kill points.
+
+```js
+const { calculateScore } = require("fortnite-replay-analysis");
+
+const scores = await calculateScore({
+    matchData: processedPlayerInfo,
+    points: {
+        1: 11,
+        2: 6,
+        3: 3
+    },
+    killMode: "team",
+    killCountUpperLimit: null,
+    killPointMultiplier: 1
+});
+
+console.log(scores);
+```
+
+※ sortScores is automatically executed inside calculateScore,  
+so the returned array is already sorted according to official rules.
+
+---
+
+### Re-sorting Scores Only
+
+Use this when you want to re-sort an existing score array  
+according to the official rules.
+
+```js
+const { sortScores } = require("fortnite-replay-analysis");
+
+const sortedScores = sortScores([...scores]);
+```
+
+※ sortScores mutates the array directly,  
+so passing a copied array using the spread operator is recommended.
+
+---
+
+### Merging Scores Across Multiple Matches
+
+Merges score arrays from multiple matches  
+by party with the same member composition.
+
+```js
+const mergedScores = mergeScores([
+    scoresMatch1,
+    scoresMatch2,
+    scoresMatch3
+]);
+
+console.log(mergedScores);
+```
+
+---
 
 ## API
 
-### `ReplayAnalysis(inputPath, options)`
+### ReplayAnalysis(inputPath, options)
 
-* `inputPath`: Path to a directory or a `.replay` file.
-* `options` (optional):
+Parses a Fortnite .replay file and returns  
+raw data, processed player information,  
+and team placements reconstructed from KillFeed.
 
-  * `bot` (boolean): Include bot players (default: `false`).
-  * `sort` (boolean): Sort by placement (default: `true`).
-* Returns: `Promise<{ rawReplayData: Object, rawPlayerData: Array, processedPlayerInfo: Array }>`
+#### Parameters
 
-### `calculateScore({ matchData, points, killCountUpperLimit, killPointMultiplier })`
+- inputPath (string)  
+  Path to a .replay file or a directory containing .replay files.  
+  If a directory is specified, the most recently updated .replay file  
+  is selected automatically.
 
-* `matchData`: The `processedPlayerInfo` array from `ReplayAnalysis`, or a path to its JSON file.
-* `points`: Object mapping placement to points (e.g., `{1:11,2:6,...}`).
-* `killCountUpperLimit`: Upper limit for kills (optional, default `null` for unlimited).
-* `killPointMultiplier`: Points multiplier per kill (optional, default `1`).
-* Returns: `Promise<Array>` of aggregated results per party.
+- options (object, optional)
 
-### `sortScores(scoreArray)`
+  - bot (boolean)  
+    Whether to include bot players  
+    Default: false  
+    When false, bots are excluded from processedPlayerInfo.
 
-Sorts scores according to official Fortnite rules:
+  - sort (boolean)  
+    Whether to sort processedPlayerInfo by Placement in ascending order  
+    Default: true
 
-1. Total points (descending)
-2. Victory Royale count (descending)
-3. Average kills (descending)
-4. Average placement (ascending)
-5. Total survival time (descending)
-6. First party number (ascending)
+#### Return Value
 
-### `mergeScores(scoreArrays)`
+Promise<ReplayAnalysisResult>
 
-* Merges multiple sorted score arrays by party.
-* `scoreArrays`: Array of sorted score arrays (e.g., `[sorted1, sorted2, ...]`).
-* Returns: Merged score array.
-* ※When using `mergeScores`, ensure each entry includes a `matchName` property. Omitting this field may lead to unexpected behavior.
-
-```javascript
-    function loadScores(matchNames) {
-        return matchNames.map(name => {
-            const raw = fs.readFileSync(
-                path.join(outputDir, name, `${name}.json`),
-                'utf8'
-            );
-            const arr = JSON.parse(raw);
-            return arr.map(p => ({ ...p, matchName: name })); // 各マッチデータに対してマッチ名を追加
-        });
-    }
-
-    (async () => {
-        const scores = loadScores(['match1','match2']);
-        let merged = mergeScores(scores);
-        merged = sortScores(merged);
-    })();
+```ts
+type ReplayAnalysisResult = {
+    rawReplayData: object;                   // Raw parsed replay data
+    rawPlayerData: PlayerData[];             // parsed.PlayerData
+    processedPlayerInfo: PlayerInfo[];       // Processed player information
+    processedPlacementInfo: {
+        teams: TeamFromKillFeed[];           // Team placements reconstructed from KillFeed
+        placement: Record<number, string[]>; // { 1: ["nameA","nameB"], 2: [...] }
+    };
+};
 ```
+
+---
+
+### calculateScore(config)
+
+Aggregates scores on a team or individual basis  
+using processedPlayerInfo from ReplayAnalysis.
+
+#### Parameters
+
+- config (object)
+
+  - matchData (PlayerInfo[] | string, required)  
+    processedPlayerInfo from ReplayAnalysis,  
+    or a path to a JSON file containing that array.  
+    ※ The JSON file must contain the array itself.
+
+  - points (Record<number, number>, required)  
+    Placement-to-point mapping
+
+    ```js
+    {
+        1: 11,
+        2: 6,
+        3: 3
+    }
+    ```
+
+    ※ Placements not specified are treated as 0 points.
+
+  - killMode ("team" | "individual", optional)  
+    Default: team  
+
+    team  
+    → Sums kills of all team members  
+
+    individual  
+    → Aggregates kills per player (partyNumber is preserved)
+
+  - killCountUpperLimit (number | null, optional)  
+    Kill count upper limit  
+    Default: null (no limit)
+
+  - killPointMultiplier (number, optional)  
+    Point multiplier per elimination  
+    Default: 1
+
+#### Return Value
+
+Promise<PartyScore[]>
+
+```ts
+type PartyScore = {
+    playerId: number | null;          // Used only in individual mode
+    partyNumber: number;
+    partyPlacement: number;           // Placement for a single match
+
+    partyKills: number;               // After applying upper limit
+    partyKillsNoLimit: number;         // Without upper limit
+    partyKillPoints: number;
+
+    partyPoint: number;
+    partyScore: number;
+
+    partyVictoryRoyale: boolean;
+
+    partyMemberList: string[];
+    partyMemberIdList: string[];
+
+    partyAliveTimeList: Decimal[];
+    matchName: string | null;
+};
+```
+
+#### Notes
+
+- sortScores is automatically executed internally,  
+  so the returned array is always sorted according to official rules.
+
+- In individual mode, partyNumber is preserved,  
+  but the aggregation key is playerId.
+
+- partyKillsNoLimit represents kills before applying the limit,  
+  while partyKills reflects the value after applying killCountUpperLimit.
+
+---
+
+### sortScores(scoreArray)
+
+Sorts a score array according to official rules.
+
+#### Sorting Priority
+
+1. Total points (descending)  
+2. Victory Royale count (descending)  
+3. Average kills (descending)  
+4. Average placement (ascending)  
+5. Total survival time (descending)  
+6. Party number from the first match (final tie-breaker)
+
+#### Destructive Behavior
+
+```js
+sortScores(scores);
+```
+
+This call mutates the scores array directly.
+
+Safe usage:
+
+```js
+sortScores([...scores]);
+```
+
+※ sortScores uses Array.prototype.sort and is therefore destructive.
+
+---
+
+### mergeScores(scoreArrays)
+
+Merges score arrays from multiple matches  
+by party with identical member composition.
+
+#### Return Value
+
+Each party includes an additional overallSummary.
+
+```js
+type OverallSummary = {
+    totalPoint: number;        // Total score
+    victoryCount: number;      // Victory Royale count
+    matchCount: number;        // Number of matches
+    avgKills: Decimal;         // Average kills (Decimal.js)
+    avgPlacement: Decimal;     // Average placement (Decimal.js)
+    totalAliveTime: Decimal;   // Total survival time (Decimal.js)
+};
+```
+
+---
 
 ## Notes
 
-* When a directory is provided, the first `.replay` file found will be processed.
-* When a file is specified, that file will be processed; if no `.replay` is found, the first one in the directory is used.
-* This software is provided without any warranty. Use it at your own risk.
-* When forking this repository, please use GitHub’s "Fork" feature to retain commit history.
-* I’m not very good at English, so the translation might be incorrect.
+- When a directory is specified, the most recently updated .replay file is used  
+- Behavior may change due to Fortnite updates  
+- The author is not responsible for any issues caused by using this tool  
+- Please use GitHub’s Fork feature when forking this project  
 
-## 🔗 Acknowledgements
+---
 
-This project uses the following open-source library:
+## 🔗 Libraries Used
 
 - [FortniteReplayDecompressor](https://github.com/Shiqan/FortniteReplayDecompressor)  
-  © Shiqan — Licensed under the MIT License.
+  © Shiqan — Used under the MIT License

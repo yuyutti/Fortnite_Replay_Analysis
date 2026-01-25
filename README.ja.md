@@ -5,14 +5,34 @@
 
 # Fortnite Replay Analysis
 
-FortniteのリプレイファイルをNode.jsで解析し、プレイヤーデータを取得・集計・ソートできるモジュールです。
+Fortnite の .replay ファイルを解析し、  
+プレイヤー情報・チーム順位・生存時間・スコア計算まで一括で処理できる  
+Node.js ライブラリです。
+
+---
 
 ## 特徴
 
-* OS判定でビルド済みの自己完結バイナリを呼び出し、高速に解析できます。
-* botプレイヤーの除外や順位ソートのオプションに対応しています。
-* 複数マッチのスコアをパーティ単位でマージして集計できます。
-* 公式準拠のルールでスコアをソートできます。
+✅ Fortnite .replay ファイルを直接解析  
+✅ Windows / Linux 対応（自己完結バイナリ）  
+✅ KillFeed から 正確なチーム順位を復元  
+✅ Bot 除外・順位ソート対応  
+✅ チーム / 個人キル両対応のスコア計算  
+✅ 複数マッチのスコアを自動マージ  
+✅ 平均キル数・平均順位・総生存時間の算出  
+✅ Decimal.js による高精度計算  
+
+---
+
+## 動作環境
+
+- Node.js 18 以上推奨  
+- Windows x64 / Linux x64  
+
+※ テスト環境 Node.js v22.22.0  
+※ macOS は現在未対応です
+
+---
 
 ## インストール
 
@@ -20,125 +40,291 @@ FortniteのリプレイファイルをNode.jsで解析し、プレイヤーデ�
 npm install fortnite-replay-analysis@latest
 ```
 
+---
+
 ## 使い方
 
-以下は、1試合のリプレイ解析からスコア計算、複数マッチのマージまでを実行する例です。
+#### リプレイ解析（最新の .replay を自動選択）
 
 ```js
-const {
-    ReplayAnalysis,
-    calculateScore,
-    sortScores,
-    mergeScores
-} = require('fortnite-replay-analysis');
+const { ReplayAnalysis } = require("fortnite-replay-analysis");
 
 (async () => {
-    // リプレイ解析（ディレクトリ指定時は最初に見つけた .replay を処理、ファイル指定時はそのファイルを使用）
     const {
         rawReplayData,
         rawPlayerData,
-        processedPlayerInfo
-    } = await ReplayAnalysis(
-        './path/to/replayDirOrFile',
-        { bot: false, sort: true }
-    );
-
-    console.log('Raw Data:', rawPlayerData);
-    console.log('Processed Player Info:', processedPlayerInfo);
-
-    // 公式ルールでソート
-    const sortedScores = sortScores(processedPlayerInfo);
-
-    // ポイント＆キル計算
-    const score = await calculateScore({
-        matchData: processedPlayerInfo,
-        points: { 1: 11, 2: 6, 3: 5, 4: 4, 5: 3, 6: 2 },
-        killCountUpperLimit: 10,      // 省略可能、デフォルト null（無制限）
-        killPointMultiplier: 1        // 1撃破あたりの倍率（1の場合1撃破1pt, 2の場合1撃破2ポイント）、省略可能、デフォルト 1
+        processedPlayerInfo,
+        processedPlacementInfo
+    } = await ReplayAnalysis("./replay", {
+        bot: false,
+        sort: true
     });
 
-    console.log('Score:', score);
-
-    // 複数マッチのマージと再ソート
-    const merged = mergeScores([ sortedScores, sortedScores2 ]);
-    const finalSorted = sortScores(merged);
-
-    console.log('Merged & Sorted:', finalSorted);
+    console.log(processedPlayerInfo);
 })();
 ```
 
+##### 単一ファイルを指定する場合
+
+```js
+await ReplayAnalysis("./replay/match1.replay");
+```
+
+---
+
+### スコア計算（単一マッチ）
+
+ReplayAnalysis の結果をそのまま使って  
+順位ポイント＋キルポイントを計算します。
+
+```js
+const { calculateScore } = require("fortnite-replay-analysis");
+
+const scores = await calculateScore({
+    matchData: processedPlayerInfo,
+    points: {
+        1: 11,
+        2: 6,
+        3: 3
+    },
+    killMode: "team",
+    killCountUpperLimit: null,
+    killPointMultiplier: 1
+});
+
+console.log(scores);
+```
+
+※ calculateScore 内部で sortScores が自動実行されるため、  
+戻り値はすでに公式準拠ルールでソートされています。
+
+---
+
+### スコアの再ソートのみを行う場合
+
+既存のスコア配列を、  
+公式ルール準拠で再ソートしたい場合に使用します。
+
+```js
+const { sortScores } = require("fortnite-replay-analysis");
+
+const sortedScores = sortScores([...scores]);
+```
+
+※ sortScores は配列を直接書き換えるため、  
+スプレッド構文でコピーしてから渡すことを推奨します。
+
+---
+
+### 複数マッチのスコアをマージする場合
+
+複数マッチ分のスコア配列を、  
+同一メンバー構成のパーティ単位で統合します。
+
+```js
+const mergedScores = mergeScores([
+    scoresMatch1,
+    scoresMatch2,
+    scoresMatch3
+]);
+
+console.log(mergedScores);
+```
+
+---
+
 ## API
 
-### `ReplayAnalysis(inputPath, options)`
+### ReplayAnalysis(inputPath, options)
 
-* `inputPath`: .replayファイルがあるディレクトリまたはファイルのパス
-* `options`（省略可）:
+Fortnite の .replay ファイルを解析し、  
+生データ・整形済みプレイヤー情報・  
+KillFeed から復元したチーム順位情報を返します。
 
-  * `bot`（boolean）: botプレイヤーを含めるか（デフォルト: `false`）
-  * `sort`（boolean）: 順位でソートするか（デフォルト: `true`）
-* 戻り値: Promise<{
-  rawReplayData: Object,
-  rawPlayerData: Array,
-  processedPlayerInfo: Array
-  }>
+#### 引数
 
-### `calculateScore({ matchData, points, killCountUpperLimit, killPointMultiplier })`
+- inputPath (string)  
+  .replay ファイル、または .replay ファイルを含むディレクトリのパス  
+  ディレクトリを指定した場合は、  
+  更新日時が最も新しい .replay ファイルが自動で選択されます。
 
-* `matchData`: `ReplayAnalysis`の`processedPlayerInfo`配列、またはそのJSONファイルへのパス
-* `points`: 順位ごとのポイント設定オブジェクト（例: `{1:11,2:6,...}`）
-* `killCountUpperLimit`: キル数の上限（省略可能、デフォルト: `null` で無制限）
-* `killPointMultiplier`: 1撃破あたりの倍率（1の場合1撃破1pt, 2の場合1撃破2ポイント）、省略可能、デフォルト: `1`
-* 戻り値: Promise（パーティごとの集計結果）
+- options (object, 省略可)
 
-### `sortScores(scoreArray)`
+  - bot (boolean)  
+    Bot プレイヤーを含めるか  
+    デフォルト: false  
+    false の場合、processedPlayerInfo から Bot が除外されます。
 
-* 公式準拠のルールでスコアをソートして返します。
-* 引数: `calculateScore`や`mergeScores`の戻り値として得られる配列
-* ソート順:
+  - sort (boolean)  
+    processedPlayerInfo を Placement 昇順でソートするか  
+    デフォルト: true
 
-  1. 累計ポイント降順
-  2. Victory Royale 回数降順
-  3. 平均撃破数降順
-  4. 平均順位昇順
-  5. 合計生存時間降順
-  6. 最初のパーティ番号昇順
+#### 戻り値
 
-### `mergeScores(scoreArrays)`
+Promise<ReplayAnalysisResult>
 
-* 複数マッチ分のスコア配列をパーティ単位でマージします。
-* 引数: ソート済みスコア配列の配列（例: `[sorted1, sorted2, ...]`）
-* 戻り値: マージ後のスコア配列
-* `mergeScores` を使用する際は、各スコアデータに `matchName` プロパティを含めてください。これがないと、一部の処理で正しく動作しない可能性があります。
-
-```javascript
-    function loadScores(matchNames) {
-        return matchNames.map(name => {
-            const raw = fs.readFileSync(
-                path.join(outputDir, name, `${name}.json`),
-                'utf8'
-            );
-            const arr = JSON.parse(raw);
-            return arr.map(p => ({ ...p, matchName: name })); // 各マッチデータに対してマッチ名を追加
-        });
-    }
-
-    (async () => {
-        const scores = loadScores(['match4','match5']);
-        let merged = mergeScores(scores);
-        merged = sortScores(merged);
-    })();
+```ts
+type ReplayAnalysisResult = {
+    rawReplayData: object;                   // 解析結果全体の生データ
+    rawPlayerData: PlayerData[];             // parsed.PlayerData
+    processedPlayerInfo: PlayerInfo[];       // 整形済みプレイヤー情報
+    processedPlacementInfo: {
+        teams: TeamFromKillFeed[];           // KillFeed から復元したチーム順位一覧（順位付き）
+        placement: Record<number, string[]>; // { 1: ["nameA","nameB"], 2: [...] }
+    };
+};
 ```
+
+---
+
+### calculateScore(config)
+
+ReplayAnalysis の processedPlayerInfo を元に、  
+チーム単位または個人単位でスコアを集計します。
+
+#### 引数
+
+- config (object)
+
+  - matchData (PlayerInfo[] | string, 必須)  
+    ReplayAnalysis の processedPlayerInfo 配列、  
+    またはその配列を保存した JSON ファイルへのパス  
+    ※ JSON は配列そのものの形式である必要があります。
+
+  - points (Record<number, number>, 必須)  
+    順位ごとのポイント設定  
+
+    ```js
+    {
+        1: 11,
+        2: 6,
+        3: 3
+    }
+    ```
+
+    ※ 指定されていない順位は 0 扱いになります。
+
+  - killMode ("team" | "individual", 省略可)  
+    デフォルト: team  
+
+    team  
+    → チームメンバー全員のキル数を合算  
+
+    individual  
+    → プレイヤー単位でキル数を集計（partyNumber は保持）
+
+  - killCountUpperLimit (number | null, 省略可)  
+    キル数の上限  
+    デフォルト: null（無制限）
+
+  - killPointMultiplier (number, 省略可)  
+    1 撃破あたりのポイント倍率  
+    デフォルト: 1
+
+#### 戻り値
+
+Promise<PartyScore[]>
+
+```ts
+type PartyScore = {
+    playerId: number | null;          // individual 指定時のみ使用
+    partyNumber: number;
+    partyPlacement: number;           // 単一マッチ時の順位
+
+    partyKills: number;               // 上限適用後
+    partyKillsNoLimit: number;         // 上限なし
+    partyKillPoints: number;
+
+    partyPoint: number;
+    partyScore: number;
+
+    partyVictoryRoyale: boolean;
+
+    partyMemberList: string[];
+    partyMemberIdList: string[];
+
+    partyAliveTimeList: Decimal[];
+    matchName: string | null;
+};
+```
+
+#### 補足
+
+- 内部で sortScores が自動実行されるため、  
+  戻り値は常に公式準拠ルールでソート済みです。
+
+- individual 指定時でも partyNumber は保持されますが、  
+  集計キーは playerId になります。
+
+- partyKillsNoLimit は上限適用前、  
+  partyKills は killCountUpperLimit 適用後の値です。
+
+---
+
+### sortScores(scoreArray)
+
+スコア配列を公式ルール準拠でソートします。
+
+#### ソート順（優先度）
+
+1. 累計獲得ポイント  
+2. Victory Royale 回数  
+3. 平均撃破数  
+4. 平均順位（小さい方が上位）  
+5. 合計生存時間  
+6. 最初のマッチのパーティ番号（最終タイブレーク）
+
+#### 破壊的変更について
+
+```js
+sortScores(scores);
+```
+
+この呼び出しでは  
+scores 配列そのものの並び順が書き換えられます。
+
+安全な使い方：
+
+```js
+sortScores([...scores]);
+```
+
+※ sortScores は Array.prototype.sort を使用するため、破壊的です。
+
+---
+
+### mergeScores(scoreArrays)
+
+複数マッチ分のスコア配列を、  
+同一メンバー構成のパーティ単位でマージします。
+
+#### 戻り値
+
+各パーティに overallSummary が追加されます。
+
+```js
+type OverallSummary = {
+    totalPoint: number;        // 合計スコア
+    victoryCount: number;      // Victory Royale 回数
+    matchCount: number;        // 試合数
+    avgKills: Decimal;         // 平均キル数（Decimal.js）
+    avgPlacement: Decimal;     // 平均順位（Decimal.js）
+    totalAliveTime: Decimal;   // 合計生存時間（Decimal.js）
+};
+```
+
+---
 
 ## 注意事項
 
-* ディレクトリ指定時は最初に見つけた `.replay` を処理します。
-* 直接ファイルを指定した場合はそのファイルを処理し、`.replay` が存在しない場合でも最初に見つけたものを使用します。
-* 本ツールの利用により発生した問題について、開発者は一切の責任を負いません。
-* フォークする場合は、GitHub の「Fork」機能を利用してください（clone → 新規リポジトリ作成は非推奨です）。
+- ディレクトリ指定時は、更新日時が最も新しい .replay ファイルを処理します  
+- Fortnite のアップデートにより挙動が変わる可能性があります  
+- 本ツールの利用により発生した問題について、開発者は責任を負いません  
+- フォークする場合は GitHub の Fork 機能を利用してください  
+
+---
 
 ## 🔗 使用ライブラリ
-
-このプロジェクトは以下のオープンソースライブラリを使用しています：
 
 - [FortniteReplayDecompressor](https://github.com/Shiqan/FortniteReplayDecompressor)  
   © Shiqan — 本プロジェクトは MIT ライセンスのもとで利用しています。
