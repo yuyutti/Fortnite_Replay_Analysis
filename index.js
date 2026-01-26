@@ -136,7 +136,7 @@ function ReplayAnalysis(inputPath, { bot = false, sort = true } = {}) {
                     return {
                         playerId: player.Id,
                         partyNumber: player.TeamIndex,
-                        Placement: fallbackPlacement ?? player.Placement,
+                        Placement: player.Placement ?? fallbackPlacement,
                         Kills: player.Kills,
                         TeamKills: player.TeamKills,
                         aliveTime: aliveTimeDecimal,
