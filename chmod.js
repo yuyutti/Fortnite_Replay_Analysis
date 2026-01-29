@@ -7,7 +7,6 @@ if (process.platform !== "linux") {
 
 const binPath = path.join(
     __dirname,
-    "..",
     "CSproj",
     "bin",
     "Release",
@@ -20,5 +19,6 @@ const binPath = path.join(
 try {
     fs.chmodSync(binPath, 0o755);
     console.log("[fortnite-replay-analysis] chmod +x applied");
-} catch (e) {
+} catch {
+    // Linuxでもpublish構成が無いケースがあるので黙殺
 }
