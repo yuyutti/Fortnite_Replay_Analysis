@@ -66,7 +66,7 @@ function ReplayAnalysis(inputPath, { bot = false, sort = true } = {}) {
                 return;
             }
             if (stderr) {
-                console.warn(`Warning: ${stderr}`);
+                console.warn(`[ReplayAnalysis stderr]: ${stderr}`);
             }
 
             let parsed;
@@ -89,18 +89,20 @@ function ReplayAnalysis(inputPath, { bot = false, sort = true } = {}) {
                    KillFeed Placement
                 ========================= */
 
-                const teamsFromKillFeed = calculateTeamPlacementFromKillFeed(
+                const {
+                    teams: generatedTeams,
+                    DisconnectionPlayers
+                } = calculateTeamPlacementFromKillFeed(
                     playerData,
                     parsed.KillFeed,
                     parsed.GameData
                 );
 
-                const placementMap = new Map(); // teamIndex -> placement
-                for (const t of teamsFromKillFeed) {
-                    placementMap.set(t.teamIndex, t.placement);
+                // teamIndex -> placement
+                const generatedPlacementMap = new Map();
+                for (const t of generatedTeams) {
+                    generatedPlacementMap.set(t.teamIndex, t.placement);
                 }
-
-                const PlacementInfo = buildSimplePlacement(teamsFromKillFeed);
 
                 /* =========================
                    Alive Time 計算
@@ -131,12 +133,13 @@ function ReplayAnalysis(inputPath, { bot = false, sort = true } = {}) {
                         ? maxSecondPlaceAliveTime.plus(new Decimal('1e-9'))
                         : new Decimal(player.DeathTimeDouble);
 
-                    const fallbackPlacement = placementMap.get(player.TeamIndex);
+                    const fallbackPlacement = generatedPlacementMap.get(player.TeamIndex);
 
                     return {
                         playerId: player.Id,
                         partyNumber: player.TeamIndex,
-                        Placement: player.Placement ?? fallbackPlacement,
+                        Placement: player.Placement,
+                        fallbackPlacement: fallbackPlacement,
                         Kills: player.Kills,
                         TeamKills: player.TeamKills,
                         aliveTime: aliveTimeDecimal,
@@ -144,18 +147,61 @@ function ReplayAnalysis(inputPath, { bot = false, sort = true } = {}) {
                         PlayerName: player.PlayerName,
                         Platform: player.Platform,
                         IsBot: player.IsBot,
+                        IsPartyLeader: player.IsPartyLeader,
+                        IsReplayOwner: player.IsReplayOwner,
+                        IsUsingAnonymousMode: player.IsUsingAnonymousMode,
+                        IsUsingStreamerMode: player.IsUsingStreamerMode,
+                        HasThankedBusDriver: player.HasThankedBusDriver,
+                        IsDisconnection: DisconnectionPlayers.has(Number(player.Id)),
                         matchName
                     };
                 });
 
-                let filteredAndSortedPlayerInfo = playerInfo;
+                // raw 100% (全部生データ)
+                let rawPlayerInfo = playerInfo;
+
+                // KillFeed 100%（全部生成データ）
+                let generatedPlayerInfo = playerInfo.map(p => ({
+                    ...p,
+                    Placement: p.fallbackPlacement ?? null
+                }));
+
+                // raw → fallback のハイブリッド(rawがある時はそっちを使用nullの場合生成を使用)
+                let hybridPlayerInfo = playerInfo.map(p => ({
+                    ...p,
+                    Placement:
+                        p.Placement != null
+                            ? p.Placement
+                            : p.fallbackPlacement
+                }));
+
+                // Bot 除外
                 if (!bot) {
-                    filteredAndSortedPlayerInfo = filteredAndSortedPlayerInfo.filter(p => p.IsBot === false);
+                    rawPlayerInfo = rawPlayerInfo.filter(p => !p.IsBot);
+                    generatedPlayerInfo = generatedPlayerInfo.filter(p => !p.IsBot);
+                    hybridPlayerInfo = hybridPlayerInfo.filter(p => !p.IsBot);
                 }
+
+                // ソート
                 if (sort) {
-                    filteredAndSortedPlayerInfo =
-                        filteredAndSortedPlayerInfo.sort((a, b) => a.Placement - b.Placement);
+                    const sorter = (a, b) => a.Placement - b.Placement;
+                    rawPlayerInfo.sort(sorter);
+                    generatedPlayerInfo.sort(sorter);
+                    hybridPlayerInfo.sort(sorter);
                 }
+                
+                /* =========================
+                   Create PlacementInfo
+                ========================= */
+
+                const rawPlacementInfo =
+                    buildPlacementFromPlayerInfo(rawPlayerInfo);
+
+                const generatedPlacementInfo2 =
+                    buildPlacementFromPlayerInfo(generatedPlayerInfo);
+
+                const hybridPlacementInfo =
+                    buildPlacementFromPlayerInfo(hybridPlayerInfo);
 
                 /* =========================
                    Resolve
@@ -164,8 +210,16 @@ function ReplayAnalysis(inputPath, { bot = false, sort = true } = {}) {
                 resolve({
                     rawReplayData: parsed,
                     rawPlayerData: playerData,
-                    processedPlayerInfo: filteredAndSortedPlayerInfo,
-                    processedPlacementInfo: { teams: teamsFromKillFeed, placement: PlacementInfo }
+                    processedPlayerInfo: { 
+                        raw: rawPlayerInfo,
+                        generated: generatedPlayerInfo,
+                        hybrid: hybridPlayerInfo 
+                    },
+                    processedPlacementInfo: {
+                        raw: rawPlacementInfo,
+                        generated: generatedPlacementInfo2,
+                        hybrid: hybridPlacementInfo,
+                    },
                 });
 
             } catch (err) {
@@ -457,6 +511,8 @@ function calculateTeamPlacementFromKillFeed( // KillFeedの情報からチーム
     const teams = new Map();          // teamIndex -> team info
     const lastDeathIndex = new Map(); // playerId -> killFeed index
 
+    const DisconnectionPlayers = new Set();
+
     // ① プレイヤー・チーム初期化
     for (const p of rawPlayerData) {
         if (p.IsBot) continue;
@@ -493,6 +549,15 @@ function calculateTeamPlacementFromKillFeed( // KillFeedの情報からチーム
         const playerId = Number(e.PlayerId);
         if (!players.has(playerId)) return;
 
+        // LoggedOut の「観測」
+        if (
+            Array.isArray(e.DeathTags) &&
+            e.DeathTags.includes("DeathCause.LoggedOut")
+        ) {
+            DisconnectionPlayers.add(playerId);
+        }
+
+        // 最終死亡 index（順位用）
         lastDeathIndex.set(playerId, index);
     });
 
@@ -525,15 +590,48 @@ function calculateTeamPlacementFromKillFeed( // KillFeedの情報からチーム
         team.placement = idx + 1;
     });
 
-    return sortedTeams;
+    return {
+        teams: sortedTeams,
+        DisconnectionPlayers
+    };
 }
 
-function buildSimplePlacement(teams) { // チーム順位からシンプルな配置オブジェクトを生成
-    return teams.reduce((acc, team) => {
-        acc[team.placement] = Object.values(team.players)
-            .map(p => p.epicName);
-        return acc;
-    }, {});
+function buildPlacementFromPlayerInfo(playerInfo) {
+    const teams = new Map();
+
+    for (const p of playerInfo) {
+        if (!teams.has(p.partyNumber)) {
+            teams.set(p.partyNumber, {
+                teamIndex: p.partyNumber,
+                placement: p.Placement ?? null,
+                players: [],
+            });
+        }
+
+        teams.get(p.partyNumber).players.push({
+            epicId: p.EpicId,
+            epicName: p.PlayerName,
+        });
+    }
+
+    const sortedTeams = Array.from(teams.values()).sort((a, b) => {
+        if (a.placement == null && b.placement == null) return 0;
+        if (a.placement == null) return 1;
+        if (b.placement == null) return -1;
+        return a.placement - b.placement;
+    });
+
+    const placement = {};
+    for (const t of sortedTeams) {
+        if (t.placement != null) {
+            placement[t.placement] = t.players.map(p => p.epicName);
+        }
+    }
+
+    return {
+        teams: sortedTeams,
+        placement,
+    };
 }
 
 module.exports = {

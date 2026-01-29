@@ -1,12 +1,13 @@
 {
   "name": "fortnite-replay-analysis",
-  "version": "1.2.1-2",
+  "version": "1.2.3",
   "description": "Fortnite replay analysis tool (Node.js用Fortniteリプレイ解析バイナリラッパー)",
   "repository": {
     "type": "git",
     "url": "https://github.com/yuyutti/Fortnite_Replay_Analysis"
   },
   "main": "index.js",
+  "types": "index.d.ts",
   "scripts": {
     "test": "node test.js"
   },
@@ -33,6 +34,7 @@
   "license": "MIT",
   "files": [
     "index.js",
+    "index.d.ts",
     "README.md",
     "README.ja.md",
     "CSproj/bin/Release/net8.0/"

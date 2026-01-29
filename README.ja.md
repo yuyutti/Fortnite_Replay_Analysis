@@ -16,11 +16,13 @@ Node.js ライブラリです。
 ✅ Fortnite .replay ファイルを直接解析  
 ✅ Windows / Linux 対応（自己完結バイナリ）  
 ✅ KillFeed から 正確なチーム順位を復元  
+※チーム順位は、KillFeed に記録された撃破順を解析することで復元されます。  
 ✅ Bot 除外・順位ソート対応  
 ✅ チーム / 個人キル両対応のスコア計算  
 ✅ 複数マッチのスコアを自動マージ  
 ✅ 平均キル数・平均順位・総生存時間の算出  
 ✅ Decimal.js による高精度計算  
+※ Decimal.js は内部で使用しており、利用者側での追加インストールは不要です。  
 
 ---
 
@@ -81,7 +83,7 @@ ReplayAnalysis の結果をそのまま使って
 const { calculateScore } = require("fortnite-replay-analysis");
 
 const scores = await calculateScore({
-    matchData: processedPlayerInfo,
+    matchData: processedPlayerInfo.hybrid,
     points: {
         1: 11,
         2: 6,
@@ -122,6 +124,8 @@ const sortedScores = sortScores([...scores]);
 同一メンバー構成のパーティ単位で統合します。
 
 ```js
+const { mergeScores } = require("fortnite-replay-analysis");
+
 const mergedScores = mergeScores([
     scoresMatch1,
     scoresMatch2,
@@ -165,15 +169,33 @@ Promise<ReplayAnalysisResult>
 
 ```ts
 type ReplayAnalysisResult = {
-    rawReplayData: object;                   // 解析結果全体の生データ
-    rawPlayerData: PlayerData[];             // parsed.PlayerData
-    processedPlayerInfo: PlayerInfo[];       // 整形済みプレイヤー情報
+    rawReplayData: any;                      // 解析結果全体の生データ
+    rawPlayerData: any[];                    // parsed.PlayerData
+    processedPlayerInfo: {                   // 整形済みプレイヤー情報
+        raw: PlayerInfo[];
+        generated: PlayerInfo[];
+        hybrid: PlayerInfo[];
+    };
     processedPlacementInfo: {
-        teams: TeamFromKillFeed[];           // KillFeed から復元したチーム順位一覧（順位付き）
-        placement: Record<number, string[]>; // { 1: ["nameA","nameB"], 2: [...] }
+        raw: {
+            teams: TeamFromKillFeed[];
+            placement: Record<number, string[]>;
+        };
+        generated: {
+            teams: TeamFromKillFeed[];
+            placement: Record<number, string[]>;
+        };
+        hybrid: {
+            teams: TeamFromKillFeed[];
+            placement: Record<number, string[]>;
+        };
     };
 };
 ```
+
+- raw: リプレイファイルに含まれる順位情報をそのまま使用したデータ  
+- generated: KillFeed の撃破順のみを元に復元した順位データ  
+- hybrid: リプレイの順位情報を優先し、存在しない場合は KillFeed 復元結果を使用  
 
 ---
 
@@ -229,20 +251,15 @@ Promise<PartyScore[]>
 type PartyScore = {
     playerId: number | null;          // individual 指定時のみ使用
     partyNumber: number;
-    partyPlacement: number;           // 単一マッチ時の順位
-
+    partyPlacement: number | null;    // 単一マッチ時の順位
     partyKills: number;               // 上限適用後
-    partyKillsNoLimit: number;         // 上限なし
+    partyKillsNoLimit: number;        // 上限なし
     partyKillPoints: number;
-
     partyPoint: number;
     partyScore: number;
-
     partyVictoryRoyale: boolean;
-
     partyMemberList: string[];
     partyMemberIdList: string[];
-
     partyAliveTimeList: Decimal[];
     matchName: string | null;
 };
@@ -294,6 +311,8 @@ sortScores([...scores]);
 ---
 
 ### mergeScores(scoreArrays)
+
+パーティの一致判定は、メンバーの Epic Account ID を基準に行われ、順序は考慮されません。
 
 複数マッチ分のスコア配列を、  
 同一メンバー構成のパーティ単位でマージします。
