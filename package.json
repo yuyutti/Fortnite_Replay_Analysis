@@ -1,6 +1,6 @@
 {
   "name": "fortnite-replay-analysis",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "description": "Fortnite replay analysis tool (Node.js用Fortniteリプレイ解析バイナリラッパー)",
   "repository": {
     "type": "git",
@@ -9,7 +9,8 @@
   "main": "index.js",
   "types": "index.d.ts",
   "scripts": {
-    "test": "node test.js"
+    "test": "node test.js",
+    "postinstall": "node ./chmod.js"
   },
   "keywords": [
     "fortnite",
