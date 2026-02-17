@@ -144,6 +144,7 @@ function ReplayAnalysis(inputPath, { bot = false, sort = true } = {}) {
                         TeamKills: player.TeamKills,
                         aliveTime: aliveTimeDecimal,
                         EpicId: player.EpicId,
+                        BotId: player.BotId,
                         PlayerName: player.PlayerName,
                         Platform: player.Platform,
                         IsBot: player.IsBot,
@@ -274,13 +275,17 @@ async function calculateScore({ matchData, points, killMode = "team", killCountU
             };
         }
 
-        // 共通で集める情報
         acc[key].partyKillsList.push(player.Kills || 0);
-        acc[key].partyAliveTimeList.push(player.aliveTime || 0);
+        acc[key].partyAliveTimeList.push(
+            player.aliveTime instanceof Decimal
+                ? player.aliveTime
+                : new Decimal(player.aliveTime ?? 0)
+        );
         acc[key].partyMemberList.push(player.PlayerName);
-        acc[key].partyMemberIdList.push(player.EpicId);
+        if (player.EpicId != null) {
+            acc[key].partyMemberIdList.push(player.EpicId);
+        }
 
-        // individual のときだけ、ここでキルを加算
         if (killMode === "individual") {
             acc[key].partyKillsNoLimit += player.Kills || 0;
         }
@@ -291,7 +296,6 @@ async function calculateScore({ matchData, points, killMode = "team", killCountU
     let result = Object.values(partyScore);
 
     if (killMode === "team") {
-        // チームキル：メンバー全員の Kills 合計
         result.forEach(p => {
             const teamKills = p.partyKillsList.reduce((a, b) => a + b, 0);
 
@@ -301,12 +305,12 @@ async function calculateScore({ matchData, points, killMode = "team", killCountU
 
             p.partyKills = limitedKills;
             p.partyKillsNoLimit = teamKills;
-
             p.partyKillPoints = limitedKills * killPointMultiplier;
             p.partyScore = (p.partyPoint || 0) + p.partyKillPoints;
         });
-    } else {
-        // individual
+    }
+
+    else if (killMode === "individual") {
         result.forEach(p => {
             const rawKills = p.partyKillsNoLimit;
 
@@ -315,6 +319,27 @@ async function calculateScore({ matchData, points, killMode = "team", killCountU
                 : Math.min(rawKills, killCountUpperLimit);
 
             p.partyKills = limitedKills;
+            p.partyKillPoints = limitedKills * killPointMultiplier;
+            p.partyScore = (p.partyPoint || 0) + p.partyKillPoints;
+        });
+    }
+
+    else if (killMode === "team_per_match_individual_total") {
+        const teamKillMap = {};
+        playerInfo.forEach(player => {
+            teamKillMap[player.partyNumber] =
+                (teamKillMap[player.partyNumber] ?? 0) + (player.Kills || 0);
+        });
+
+        result.forEach(p => {
+            const teamKills = teamKillMap[p.partyNumber] ?? 0;
+
+            const limitedKills = killCountUpperLimit == null
+                ? teamKills
+                : Math.min(teamKills, killCountUpperLimit);
+
+            p.partyKills = limitedKills;
+            p.partyKillsNoLimit = teamKills;
             p.partyKillPoints = limitedKills * killPointMultiplier;
             p.partyScore = (p.partyPoint || 0) + p.partyKillPoints;
         });
@@ -603,35 +628,62 @@ function buildPlacementFromPlayerInfo(playerInfo) {
         if (!teams.has(p.partyNumber)) {
             teams.set(p.partyNumber, {
                 teamIndex: p.partyNumber,
-                placement: p.Placement ?? null,
+                placements: [],
                 players: [],
             });
         }
 
-        teams.get(p.partyNumber).players.push({
+        const team = teams.get(p.partyNumber);
+
+        // null は「無視」する（＝未確定）
+        if (typeof p.Placement === "number") {
+            team.placements.push(p.Placement);
+        }
+
+        team.players.push({
             epicId: p.EpicId,
+            botId: p.BotId,
             epicName: p.PlayerName,
         });
     }
 
-    const sortedTeams = Array.from(teams.values()).sort((a, b) => {
-        if (a.placement == null && b.placement == null) return 0;
-        if (a.placement == null) return 1;
-        if (b.placement == null) return -1;
-        return a.placement - b.placement;
+    const teamArray = Array.from(teams.values()).map(team => {
+        const placement =
+            team.placements.length > 0
+                ? Math.min(...team.placements)
+                : null;
+
+        return {
+            teamIndex: team.teamIndex,
+            placement,
+            players: team.players,
+        };
     });
 
-    const placement = {};
-    for (const t of sortedTeams) {
+    // ★ comparator を統一
+    teamArray.sort((a, b) =>
+        comparePlacement(a.placement, b.placement)
+    );
+
+    const placementMap = {};
+    for (const t of teamArray) {
         if (t.placement != null) {
-            placement[t.placement] = t.players.map(p => p.epicName);
+            placementMap[t.placement] =
+                t.players.map(p => p.epicName);
         }
     }
 
     return {
-        teams: sortedTeams,
-        placement,
+        teams: teamArray,
+        placement: placementMap,
     };
+}
+
+function comparePlacement(a, b) {
+    if (a == null && b == null) return 0;
+    if (a == null) return 1;   // null = 未確定 → 後ろ
+    if (b == null) return -1;
+    return a - b;
 }
 
 module.exports = {

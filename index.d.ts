@@ -1,16 +1,22 @@
+// index.d.ts
 import Decimal from "decimal.js";
 
-export interface ProcessedPlayerInfo {
-    playerId: number;
-    partyNumber: number;
-    Placement: number | null;
-    fallbackPlacement?: number | null;
+/* =========================
+   Replay Analysis
+========================= */
 
-    Kills: number;
-    TeamKills: number;
+export interface ProcessedPlayerInfo {
+    playerId: number | null;
+    partyNumber: number | null;
+    Placement: number | null;
+    fallbackPlacement: number | null;
+
+    Kills: number | null;
+    TeamKills: number | null;
     aliveTime: Decimal;
 
-    EpicId: string;
+    EpicId: string | null;
+    BotId: string | null;
     PlayerName: string;
     Platform: string;
 
@@ -20,16 +26,17 @@ export interface ProcessedPlayerInfo {
     IsUsingAnonymousMode: boolean;
     IsUsingStreamerMode: boolean;
     HasThankedBusDriver: boolean;
-    IsDisconnection: boolean
+    IsDisconnection: boolean;
 
     matchName: string;
 }
 
 export interface PlacementTeam {
     teamIndex: number;
-    placement: number;
+    placement: number | null;
     players: {
-        epicId: string;
+        epicId: string | null;
+        botId: string | null;
         epicName: string;
     }[];
 }
@@ -55,6 +62,10 @@ export interface ReplayAnalysisResult {
         hybrid: PlacementInfo;
     };
 }
+
+/* =========================
+   Score
+========================= */
 
 export interface ScoreSummary {
     point: number;
@@ -89,6 +100,8 @@ export interface ScoreResult {
     partyDiscordInfo: any;
 
     matchName: string | null;
+
+    blockName?: string | null;
 
     summary?: ScoreSummary;
 }
@@ -128,7 +141,24 @@ export interface MergedScoreResult {
         avgPlacement: Decimal;
         totalAliveTime: Decimal;
     };
+
+    /**
+     * sortScores 実行後に付与される
+     */
+    summary?: ScoreSummary;
 }
+
+/* =========================
+   Sort abstraction
+========================= */
+
+export interface SortableScore {
+    partyScore: number;
+}
+
+/* =========================
+   API
+========================= */
 
 export function ReplayAnalysis(
     inputPath: string,
@@ -141,11 +171,15 @@ export function ReplayAnalysis(
 export function calculateScore(options: {
     matchData: string | ProcessedPlayerInfo[];
     points: Record<number, number>;
-    killMode?: "team" | "individual";
+    killMode?: "team" | "individual" | "team_per_match_individual_total";
     killCountUpperLimit?: number | null;
     killPointMultiplier?: number;
 }): Promise<ScoreResult[]>;
 
-export function sortScores<T extends ScoreResult>(arr: T[]): T[];
+export function sortScores<T extends SortableScore>(
+    arr: T[]
+): (T & { summary: ScoreSummary })[];
 
-export function mergeScores(scoreArrays: ScoreResult[][]): MergedScoreResult[];
+export function mergeScores(
+    scoreArrays: ScoreResult[][]
+): MergedScoreResult[];
