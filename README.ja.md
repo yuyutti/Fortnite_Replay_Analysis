@@ -226,7 +226,7 @@ ReplayAnalysis の processedPlayerInfo を元に、
 
     ※ 指定されていない順位は 0 扱いになります。
 
-  - killMode ("team" | "individual", 省略可)  
+  - killMode ("team" | "individual", "team_per_match_individual_total")  
     デフォルト: team  
 
     team  

@@ -224,7 +224,7 @@ using processedPlayerInfo from ReplayAnalysis.
 
   ※ Placements not specified are treated as 0 points.
 
-- killMode ("team" | "individual", optional)  
+- killMode ("team" | "individual", "team_per_match_individual_total")  
   Default: team  
 
   team  
