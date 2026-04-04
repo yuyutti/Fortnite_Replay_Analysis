@@ -29,7 +29,8 @@ public class Startup
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine("Error: " + ex.Message);
+            Console.Error.WriteLine("===== ERROR =====");
+            Console.Error.WriteLine(ex.ToString());
             Environment.Exit(1);
         }
     }

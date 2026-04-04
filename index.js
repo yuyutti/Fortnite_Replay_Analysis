@@ -22,6 +22,7 @@ function getBinaryPath() { // OS判定して自己完結バイナリの実行フ
     projectRoot = normalizeProjectRoot(projectRoot);
 
     const baseDir = path.resolve(projectRoot, 'node_modules', 'fortnite-replay-analysis', 'CSproj', 'bin', 'Release', 'net8.0');
+    // const baseDir = path.resolve(projectRoot, 'CSproj', 'bin', 'Release', 'net8.0');
 
     switch (os.platform()) {
         case 'win32':
