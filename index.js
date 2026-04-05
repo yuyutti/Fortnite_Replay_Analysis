@@ -72,8 +72,6 @@ function ReplayAnalysis(inputPath, { bot = false, sort = true } = {}) {
 
             let parsed;
             try {
-                // 結果をそのままlog.txtで出力
-                fs.writeFileSync("./output/log.txt", stdout);
                 parsed = JSON.parse(stdout);
             } catch (jsonErr) {
                 reject(new Error(`JSON parse error: ${jsonErr.message}`));
