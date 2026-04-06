@@ -10,7 +10,7 @@ const binPath = path.join(
     "CSproj",
     "bin",
     "Release",
-    "net8.0",
+    "net10.0",
     "linux-x64",
     "publish",
     "FortniteReplayAnalysis"

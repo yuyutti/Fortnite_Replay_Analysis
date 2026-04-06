@@ -7,7 +7,7 @@ const { ReplayAnalysis } = require("./index");
         rawPlayerData,
         processedPlayerInfo,
         processedPlacementInfo
-    } = await ReplayAnalysis("./replay/*.replay", {
+    } = await ReplayAnalysis("./replay/TournamentMatch_14643eaac64243d7be6a8910332606bb.replay", {
         bot: false,
         sort: true
     });
