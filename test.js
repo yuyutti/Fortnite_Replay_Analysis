@@ -7,7 +7,7 @@ const { ReplayAnalysis } = require("./index");
         rawPlayerData,
         processedPlayerInfo,
         processedPlacementInfo
-    } = await ReplayAnalysis("./replay/41-10client.replay", {
+    } = await ReplayAnalysis("./replay/*.replay", {
         bot: false,
         sort: true
     });

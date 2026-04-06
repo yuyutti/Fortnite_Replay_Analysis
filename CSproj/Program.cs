@@ -1,37 +1,42 @@
 ﻿using System;
-using System.Threading.Tasks;
 using Newtonsoft.Json;
 using FortniteReplayReader;
 
 public class Startup
 {
-    public static async Task<string> Invoke(string replayFile)
+    public static string Invoke(string replayFile)
     {
         var reader = new ReplayReader();
-        var replay = await Task.Run(() => reader.ReadReplay(replayFile));
+        var replay = reader.ReadReplay(replayFile);
+
+#if DEBUG
         return JsonConvert.SerializeObject(replay, Formatting.Indented);
+#else
+        return JsonConvert.SerializeObject(replay, Formatting.None);
+#endif
     }
 
-    public static async Task Main(string[] args)
+    public static int Main(string[] args)
     {
         Console.OutputEncoding = System.Text.Encoding.UTF8;
 
         if (args.Length < 1)
         {
-            Console.Error.WriteLine("Usage: dotnet run <replayFilePath>");
-            Environment.Exit(1);
+            Console.Error.WriteLine("Usage: FortniteReplayAnalysis <replayFilePath>");
+            return 1;
         }
 
         try
         {
-            var playerDataJson = await Invoke(args[0]);
+            var playerDataJson = Invoke(args[0]);
             Console.WriteLine(playerDataJson);
+            return 0;
         }
         catch (Exception ex)
         {
             Console.Error.WriteLine("===== ERROR =====");
             Console.Error.WriteLine(ex.ToString());
-            Environment.Exit(1);
+            return 1;
         }
     }
 }

@@ -21,8 +21,8 @@ function getBinaryPath() { // OS判定して自己完結バイナリの実行フ
 
     projectRoot = normalizeProjectRoot(projectRoot);
 
-    const baseDir = path.resolve(projectRoot, 'node_modules', 'fortnite-replay-analysis', 'CSproj', 'bin', 'Release', 'net8.0');
-    // const baseDir = path.resolve(projectRoot, 'CSproj', 'bin', 'Release', 'net8.0');
+    const baseDir = path.resolve(projectRoot, 'node_modules', 'fortnite-replay-analysis', 'CSproj', 'bin', 'Release', 'net10.0');
+    // const baseDir = path.resolve(projectRoot, 'CSproj', 'bin', 'Release', 'net10.0');
 
     switch (os.platform()) {
         case 'win32':
@@ -61,7 +61,7 @@ function ReplayAnalysis(inputPath, { bot = false, sort = true } = {}) {
 
         const binPath = getBinaryPath();
 
-        execFile(binPath, [replayFilePath], { maxBuffer: 1024 * 1024 * 20 }, (error, stdout, stderr) => {
+        execFile(binPath, [replayFilePath], { maxBuffer: 1024 * 1024 * 200 }, (error, stdout, stderr) => {
             if (error) {
                 reject(new Error(`Execution error: ${error.message}`));
                 return;

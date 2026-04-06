@@ -2,29 +2,14 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- <PackageReference Include="FortniteReplayReader" Version="2.4.0" /> -->
-      <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.5" />
-      <Reference Include="FortniteReplayReader">
-        <HintPath>lib\net8.0\FortniteReplayReader.dll</HintPath>
-      </Reference>
-      <Reference Include="Unreal.Core">
-          <HintPath>lib/net8.0/Unreal.Core.dll</HintPath>
-      </Reference>
-
-      <Reference Include="Unreal.Encryption">
-          <HintPath>lib/net8.0/Unreal.Encryption.dll</HintPath>
-      </Reference>
-
-      <Reference Include="OozSharp">
-          <HintPath>lib/net8.0/OozSharp.dll</HintPath>
-      </Reference>
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="FortniteReplayReader" Version="3.0.0" />
   </ItemGroup>
 
 </Project>
